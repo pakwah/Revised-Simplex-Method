@@ -129,6 +129,56 @@ void printFinalVariables(variable b[], size_t nonbasic[]) {
     printf("\n");
 }
 
+// function to print out the family of solutions when the LP is found to be unbounded
+void printFamilyOfSolutions(variable b[], size_t nonbasic[], vector<double> d, double largestCoeff, size_t enteringLabel, double z) {
+    // in order to print out variable information in their natural order
+    // we need to remember which row a basic variable locates in the basis
+    // as to correspond it to the correct row in the entering variable's column in the dictionary
+    struct varInfo {
+        size_t label;
+        double value;
+        size_t row_in_basis;
+        bool isBasic;
+    };
+    
+    varInfo info[m + n];
+    
+    for (size_t row = 0; row < m; ++row) {
+        variable v = b[row];
+        info[v.label] = {v.label, v.value, row, true};
+    }
+    
+    for (size_t col = 0; col < n; ++col) {
+        info[nonbasic[col]] = {nonbasic[col], 0.0, 0, false};
+    }
+    
+    // decision variables
+    printf("Decision variables: ");
+    
+    for (size_t i = 0; i < n; ++i) {
+        printf("x%lu = %5.3f ", i + 1, info[i].value);
+        if (info[i].isBasic) {
+            printf("+ %5.3fx%lu ", d[info[i].row_in_basis] * (-1.0), enteringLabel + 1);
+        }
+    }
+    
+    // slack variables
+    printf("\nSlack variables: ");
+    
+    for (size_t i = n; i < m + n; ++i) {
+        printf("x%lu = %5.3f ", i + 1, info[i].value);
+        if (info[i].isBasic) {
+            printf("+ %5.3fx%lu ", d[info[i].row_in_basis] * (-1.0), enteringLabel + 1);
+        }
+    }
+    
+    // objective function
+    printf("\nZ = %5.3f + %5.3fx%lu, ", z, largestCoeff, enteringLabel + 1);
+    
+    printf("with x%lu >= 0\n", enteringLabel + 1);
+}
+
+
 // a function for sorting variables in a vector
 // into descending order
 bool mComparator(variable v1, variable v2) {
@@ -292,7 +342,6 @@ int main(int argc, const char * argv[]) {
             
             printf("x%lu %5.3f ", varLabel + 1, cnbar);
             
-            // What if cnbar == 0.0?
             if (cnbar > epsilon1) {
                 variable v = {varLabel, cnbar};
                 
@@ -330,13 +379,13 @@ int main(int argc, const char * argv[]) {
         
         size_t leavingLabel;
         size_t leavingRow;
-        double largest_t;
+        double smallest_t;
         
         while (true) {
             
             leavingLabel = -1;
             leavingRow = -1;
-            largest_t = -1;
+            smallest_t = -1;
             
             if (enteringVariable_index > 0) {
                 printf("\n\nRechoosing entering variable since the diagonal element in the eta column is close to zero.\n");
@@ -388,23 +437,25 @@ int main(int argc, const char * argv[]) {
             // choose the corresponding i for the smallest ratio
             // as the leaving variable
             
-            // initialize largest_t to be the first ratio where
+            // initialize smallest_t to be the first ratio where
             // the coefficient of the entering variable in that row is negative
             for (size_t row = 0; row < d.size(); ++row) {
                 if (d[row] > 0.0) {
                     leavingLabel = b[row].label;
                     leavingRow = row;
-                    largest_t = b[row].value / d[row];
+                    smallest_t = b[row].value / d[row];
                 }
             }
             
             // if no ratio is computed, then the LP is unbounded
             if (leavingLabel == -1) {
-                printf("\nThe given LP is unbounded. Exiting program.\n");
+                printf("\nThe given LP is unbounded. The family of solutions is:\n");
+                printFamilyOfSolutions(b, nonbasic, d, largestCoeff, enteringLabel, z);
                 return 0;
             }
             
             // there is at least one ratio computed, print out the ratio(s)
+            // and choose the row corresponding to the smallest ratio to leave
             printf("ratio: ");
             
             for (size_t row = 0; row < d.size(); ++row) {
@@ -414,14 +465,14 @@ int main(int argc, const char * argv[]) {
                 
                 double t_row = b[row].value / d[row];
                 
-                if (t_row > 0) {
+                if (t_row >= 0.0) {
                     printf("x%lu %5.3f ", b[row].label + 1, t_row);
                 }
                 
-                if (t_row < largest_t) {
+                if (t_row < smallest_t) {
                     leavingLabel = b[row].label;
                     leavingRow = row;
-                    largest_t = t_row;
+                    smallest_t = t_row;
                 }
             }
 
@@ -442,12 +493,12 @@ int main(int argc, const char * argv[]) {
         
         // set the value of the entering varaible at t
         // modify b (change leaving variable to entering variable, change values of other basic vars)
-        variable enteringVar = {enteringLabel, largest_t};
+        variable enteringVar = {enteringLabel, smallest_t};
         b[leavingRow] = enteringVar;
         
         for (size_t row = 0; row < sizeof(b) / sizeof(b[0]); ++row) {
             if (row != leavingRow) {
-                b[row].value -= d[row] * largest_t;
+                b[row].value -= d[row] * smallest_t;
             }
         }
         
@@ -473,10 +524,10 @@ int main(int argc, const char * argv[]) {
         printBbar(b);
         
         // print out the coefficient of the entering variable and the amount the entering variable has been increased
-        printf("\nCoefficient of entering variable: %5.3f\nAmount increased for the entering variable is: %5.3f\n", largestCoeff, largest_t);
+        printf("\nCoefficient of entering variable: %5.3f\nAmount increased for the entering variable is: %5.3f\n", largestCoeff, smallest_t);
         
         // increase the value of the objective function
-        double increasedValue =largestCoeff * largest_t;
+        double increasedValue =largestCoeff * smallest_t;
         
         // print out the update to the objective function value
         printf("Increased value: %5.3f\n", increasedValue);
